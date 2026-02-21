@@ -164,7 +164,7 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
 (async () => {
     const browser = await chromium.launch(launchOptions);
     const page = await browser.newPage();
-    page.setDefaultTimeout(200000);
+    page.setDefaultTimeout(300000);
 
     await page.goto(
         "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?search%5Border%5D=created_at:desc&search%5Bfilter_float_price:from%5D=2000&search%5Bfilter_float_price:to%5D=4000&search%5Bfilter_enum_rooms%5D%5B0%5D=three&search%5Bfilter_enum_rooms%5D%5B1%5D=four"
@@ -175,7 +175,7 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
     const container = await page.getByTestId('listing-grid');
     const offers = await container.getByTestId('l-card').all();
 
-    for (let i = 0; i < 1; i++) {
+    for (let i = 0; i < MAX_OFFERS_COUNT; i++) {
         const offer = offers[i];
 
         const link = await getLink(offer, page);
@@ -193,7 +193,7 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
         };
 
         const detailContent = link.includes('otodom') ? await getOfferDetailContentOtodom(browser, link) : await getOfferDetailContentOLX(browser, link);
-        console.log(detailContent);
+        console.log(i, ' - ', detailContent.title);
 
         const openAiData = await processRentWithOpenAI({
             rent: detailContent.price,
