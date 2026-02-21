@@ -3,7 +3,87 @@ const { chromium } = require("playwright");
 const fs = require("fs");
 
 const MAX_OFFERS_COUNT = 10;
-const OFFERS_COUNT = 3;
+const RENT_SERVER_URL = process.env.RENT_SERVER_URL || "http://localhost:3000";
+
+/**
+ * Fetches a rent by link from the rent server.
+ * @param {string} link - The offer link to look up.
+ * @returns {Promise<object|null>} The rent object if found, null if not found (404).
+ * @throws {Error} On network error or non-2xx/404 response.
+ */
+const getRentByLink = async (link) => {
+    const res = await fetch(`${RENT_SERVER_URL}/rents/by-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ link }),
+    });
+    if (res.status === 404) {
+        return null;
+    }
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Rent server error ${res.status}: ${err}`);
+    }
+    return res.json();
+};
+
+/**
+ * Inserts a rent into the rent server.
+ * @param {object} data - Rent data.
+ * @param {string} data.rent - Rent amount/text (required).
+ * @param {string} data.link - Offer URL (required).
+ * @param {string} data.title - Title (required).
+ * @param {string} data.description - Description (required).
+ * @param {string} [data.localization] - Localization.
+ * @param {string} [data.fees] - Fees.
+ * @param {boolean} [data.pets] - Pets allowed.
+ * @param {boolean} [data.balcony_terrace_garden] - Balcony/terrace/garden.
+ * @returns {Promise<{id: number, message: string}>} Created rent id and message.
+ * @throws {Error} On validation (400) or server error.
+ */
+const insertRent = async (data) => {
+    const res = await fetch(`${RENT_SERVER_URL}/rents`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Rent server error ${res.status}: ${err}`);
+    }
+    return res.json();
+};
+
+/**
+ * Sends rent listing to the rent server's OpenAI endpoint; returns formatted JSON.
+ * @param {object} data - Rent data to process.
+ * @param {string} data.rent - Rent amount/text (required).
+ * @param {string} data.link - Offer URL (required).
+ * @param {string} data.title - Title (required).
+ * @param {string} data.description - Description (required).
+ * @param {string} [data.localization] - Localization.
+ * @returns {Promise<object>} JSON object with keys rent, link, title, localization, description.
+ * @throws {Error} On validation (400), server or OpenAI error (5xx).
+ */
+const processRentWithOpenAI = async (data) => {
+    const res = await fetch(`${RENT_SERVER_URL}/openai/rent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+    });
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Rent server error ${res.status}: ${err}`);
+    }
+    return res.json();
+};
+
+const getLink = async (offer, page) => {
+    const offerLink = offer.locator("a").first();
+    const href = await offerLink.getAttribute("href");
+    if (!href) return null;
+    return href.startsWith("http") ? href : new URL(href, page.url()).href;
+};
 
 // On Raspberry Pi set CHROMIUM_PATH=/usr/bin/chromium-browser; on Mac leave unset to use Playwright's browser
 const chromiumPath = process.env.CHROMIUM_PATH;
@@ -15,16 +95,9 @@ if (chromiumPath && fs.existsSync(chromiumPath)) {
     launchOptions.executablePath = chromiumPath;
 }
 
-const isOfferAlreadyScraped = async (offer) => {
-    //Get only h4
-    const title = await offer.locator('h4').first();
-    const titleText = await title.innerText();
-
-    console.log(titleText, ' check \n ');
-    //Check api
-
-
-    return false;
+const isOfferAlreadyScraped = async (link) => {
+    const rent = await getRentByLink(link);
+    return rent !== null;
 };
 
 const getOfferDetailContentOtodom = async (browser, detailUrl) => {
@@ -102,22 +175,41 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
     const container = await page.getByTestId('listing-grid');
     const offers = await container.getByTestId('l-card').all();
 
-    for (let i = 0; i < MAX_OFFERS_COUNT; i++) {
+    for (let i = 0; i < 1; i++) {
         const offer = offers[i];
-        const isScraped = await isOfferAlreadyScraped(offer);
-        console.log("index", i)
-        if (isScraped) {
+
+        const link = await getLink(offer, page);
+        if (!link) {
+            console.log(i, ' - ', 'No link found');
             continue;
-        }
+        };
 
-        const offerLink = offer.locator("a").first();
-        const href = await offerLink.getAttribute("href");
-        if (!href) continue;
-        const detailUrl = href.startsWith("http") ? href : new URL(href, page.url()).href;
-        console.log(detailUrl);
+        console.log(i, ' - ', link);
 
-        const detailContent = detailUrl.includes('otodom') ? await getOfferDetailContentOtodom(browser, detailUrl) : await getOfferDetailContentOLX(browser, detailUrl);
+        const isScraped = await isOfferAlreadyScraped(link);
+        if (isScraped) {
+            console.log(i, ' - ', 'Offer already scraped');
+            continue;
+        };
+
+        const detailContent = link.includes('otodom') ? await getOfferDetailContentOtodom(browser, link) : await getOfferDetailContentOLX(browser, link);
         console.log(detailContent);
+
+        const openAiData = await processRentWithOpenAI({
+            rent: detailContent.price,
+            link: link,
+            title: detailContent.title,
+            description: detailContent.details,
+            localization: detailContent.location,
+        });
+
+        console.log(openAiData);
+
+        await insertRent({
+            ...openAiData,
+        });
+
+        console.log(i, ' - ', 'Offer inserted');
     }
 
     await browser.close();
