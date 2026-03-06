@@ -212,6 +212,11 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
 
                 console.log(i, ' - ', link);
 
+                if (link.includes('promoted')) {
+                    console.log(i, ' - ', 'Promoted offer skipped');
+                    continue;
+                }
+
                 const isScraped = await isOfferAlreadyScraped(link);
                 if (isScraped) {
                     console.log(i, ' - ', 'Offer already scraped');
