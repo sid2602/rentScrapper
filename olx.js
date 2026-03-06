@@ -55,6 +55,26 @@ const insertRent = async (data) => {
 };
 
 /**
+ * Triggers an email from the rent server.
+ * This endpoint treats all fields as optional; we just forward whatever payload we have.
+ * @param {object} data - Any JSON payload (all fields optional).
+ * @returns {Promise<object>} Rent server response.
+ * @throws {Error} On non-2xx response.
+ */
+const triggerRentEmail = async (data) => {
+    const res = await fetch(`${RENT_SERVER_URL}/mail/rent`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data ?? {}),
+    });
+    if (!res.ok) {
+        const err = await res.text();
+        throw new Error(`Rent server mail error ${res.status}: ${err}`);
+    }
+    return res.json();
+};
+
+/**
  * Sends rent listing to the rent server's OpenAI endpoint; returns formatted JSON.
  * @param {object} data - Rent data to process.
  * @param {string} data.rent - Rent amount/text (required).
@@ -164,57 +184,77 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
 (async () => {
     console.log('Starting scrapper');
     const browser = await chromium.launch(launchOptions);
-    const page = await browser.newPage();
-    page.setDefaultTimeout(300000);
+    try {
+        const page = await browser.newPage();
+        page.setDefaultTimeout(300000);
 
-    await page.goto(
-        "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?search%5Border%5D=created_at:desc&search%5Bfilter_float_price:from%5D=2000&search%5Bfilter_float_price:to%5D=4000&search%5Bfilter_enum_rooms%5D%5B0%5D=three&search%5Bfilter_enum_rooms%5D%5B1%5D=four"
-    );
+        await page.goto(
+            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?search%5Border%5D=created_at:desc&search%5Bfilter_float_price:from%5D=2000&search%5Bfilter_float_price:to%5D=4000&search%5Bfilter_enum_rooms%5D%5B0%5D=three&search%5Bfilter_enum_rooms%5D%5B1%5D=four"
+        );
 
-    console.log('Page loaded');
+        console.log('Page loaded');
 
-    await page.getByRole('button', { name: 'Zezwól tylko na niezbędne' }).click();
-    console.log('Button clicked');
-    const container = await page.getByTestId('listing-grid');
-    const offers = await container.getByTestId('l-card').all();
+        await page.getByRole('button', { name: 'Zezwól tylko na niezbędne' }).click();
+        console.log('Button clicked');
+        const container = await page.getByTestId('listing-grid');
+        const offers = await container.getByTestId('l-card').all();
 
+        for (let i = 0; i < MAX_OFFERS_COUNT; i++) {
+            try {
+                const offer = offers[i];
 
-    for (let i = 0; i < MAX_OFFERS_COUNT; i++) {
-        const offer = offers[i];
+                const link = await getLink(offer, page);
+                if (!link) {
+                    console.log(i, ' - ', 'No link found');
+                    continue;
+                };
 
-        const link = await getLink(offer, page);
-        if (!link) {
-            console.log(i, ' - ', 'No link found');
-            continue;
-        };
+                console.log(i, ' - ', link);
 
-        console.log(i, ' - ', link);
+                const isScraped = await isOfferAlreadyScraped(link);
+                if (isScraped) {
+                    console.log(i, ' - ', 'Offer already scraped');
+                    continue;
+                };
 
-        const isScraped = await isOfferAlreadyScraped(link);
-        if (isScraped) {
-            console.log(i, ' - ', 'Offer already scraped');
-            continue;
-        };
+                const detailContent = link.includes('otodom')
+                    ? await getOfferDetailContentOtodom(browser, link)
+                    : await getOfferDetailContentOLX(browser, link);
+                console.log(i, ' - ', detailContent.title);
 
-        const detailContent = link.includes('otodom') ? await getOfferDetailContentOtodom(browser, link) : await getOfferDetailContentOLX(browser, link);
-        console.log(i, ' - ', detailContent.title);
+                const openAiData = await processRentWithOpenAI({
+                    rent: detailContent.price,
+                    link: link,
+                    title: detailContent.title,
+                    description: detailContent.details,
+                    localization: detailContent.location,
+                });
 
-        const openAiData = await processRentWithOpenAI({
-            rent: detailContent.price,
-            link: link,
-            title: detailContent.title,
-            description: detailContent.details,
-            localization: detailContent.location,
-        });
+                console.log(openAiData);
 
-        console.log(openAiData);
+                await insertRent({
+                    ...openAiData,
+                });
 
-        await insertRent({
-            ...openAiData,
-        });
+                console.log(i, ' - ', 'Offer inserted');
 
-        console.log(i, ' - ', 'Offer inserted');
+                try {
+                    if (openAiData.pets === false || openAiData.balcony_terrace_garden === false) {
+                        console.log(i, ' - ', 'Email not triggered because pets or balcony/terrace/garden is false');
+                        continue;
+                    }
+                    await triggerRentEmail({
+                        ...openAiData,
+                    });
+                    console.log(i, ' - ', 'Email triggered');
+                } catch (err) {
+                    console.error(i, ' - ', 'Email trigger failed', err?.message ?? err);
+                }
+            } catch (err) {
+                console.error(i, ' - ', 'Offer processing failed', err?.message ?? err);
+            }
+        }
+    } finally {
+        await browser.close();
     }
-
-    await browser.close();
 })();
