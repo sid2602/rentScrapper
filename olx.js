@@ -173,11 +173,10 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
 
     console.log('Page loaded');
 
-    await page.getByRole('button', { name: 'Zezwól tylko na niezbędne' })
+    await page.getByRole('button', { name: 'Zezwól tylko na niezbędne' }).click();
     console.log('Button clicked');
     const container = await page.getByTestId('listing-grid');
     const offers = await container.getByTestId('l-card').all();
-
 
 
     for (let i = 0; i < MAX_OFFERS_COUNT; i++) {
