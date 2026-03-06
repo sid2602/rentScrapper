@@ -162,6 +162,7 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
 };
 
 (async () => {
+    console.log('Starting scrapper');
     const browser = await chromium.launch(launchOptions);
     const page = await browser.newPage();
     page.setDefaultTimeout(300000);
@@ -170,10 +171,14 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
         "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?search%5Border%5D=created_at:desc&search%5Bfilter_float_price:from%5D=2000&search%5Bfilter_float_price:to%5D=4000&search%5Bfilter_enum_rooms%5D%5B0%5D=three&search%5Bfilter_enum_rooms%5D%5B1%5D=four"
     );
 
-    await page.getByRole('button', { name: 'Akceptuję' }).click();
+    console.log('Page loaded');
 
+    await page.getByRole('button', { name: 'Zezwól tylko na niezbędne' })
+    console.log('Button clicked');
     const container = await page.getByTestId('listing-grid');
     const offers = await container.getByTestId('l-card').all();
+
+
 
     for (let i = 0; i < MAX_OFFERS_COUNT; i++) {
         const offer = offers[i];
