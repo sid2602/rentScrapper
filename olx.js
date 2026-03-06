@@ -4,6 +4,9 @@ const fs = require("fs");
 
 const MAX_OFFERS_COUNT = 10;
 const RENT_SERVER_URL = process.env.RENT_SERVER_URL || "http://localhost:3000";
+const SCRAPER_START_URL =
+    process.env.SCRAPER_START_URL ||
+    "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?search%5Border%5D=created_at:desc&search%5Bfilter_float_price:from%5D=2000&search%5Bfilter_float_price:to%5D=4000&search%5Bfilter_enum_rooms%5D%5B0%5D=three&search%5Bfilter_enum_rooms%5D%5B1%5D=four";
 
 /**
  * Fetches a rent by link from the rent server.
@@ -188,9 +191,7 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
         const page = await browser.newPage();
         page.setDefaultTimeout(300000);
 
-        await page.goto(
-            "https://www.olx.pl/nieruchomosci/mieszkania/wynajem/krakow/?search%5Border%5D=created_at:desc&search%5Bfilter_float_price:from%5D=2000&search%5Bfilter_float_price:to%5D=4000&search%5Bfilter_enum_rooms%5D%5B0%5D=three&search%5Bfilter_enum_rooms%5D%5B1%5D=four"
-        );
+        await page.goto(SCRAPER_START_URL);
 
         console.log('Page loaded');
 
