@@ -193,7 +193,7 @@ const getOfferDetailContentOLX = async (browser, detailUrl) => {
 
         await page.goto(SCRAPER_START_URL);
 
-        console.log('Page loaded');
+        console.log(new Date().toISOString(), 'Page loaded');
 
         await page.getByRole('button', { name: 'Zezwól tylko na niezbędne' }).click();
         console.log('Button clicked');
